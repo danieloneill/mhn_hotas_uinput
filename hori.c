@@ -351,13 +351,11 @@ int hori_poll_vr_00()
 			HORI_POLL_VR0, 0, 1, (unsigned char *)&vr, sizeof(vr), 200);
 
 	// Handle stall. (Do nothing, we're in a control xfer.)
-	if( LIBUSB_ERROR_PIPE == err ) {
-		//fprintf(stderr, "-EPIPE\n");
+	if( LIBUSB_ERROR_PIPE == err || LIBUSB_ERROR_TIMEOUT == err )
 		return 0;
-	}
 
 	if( 0 > err) {
-		fprintf(stderr, "hori_poll_vr_00: libusb_interrupt_transfer failed: %d: %s", err, libusb_strerror(err));
+		fprintf(stderr, "hori_poll_vr_00: libusb_control_transfer failed: %d: %s", err, libusb_strerror(err));
 		return -1;
 	}
 
@@ -398,13 +396,11 @@ int hori_poll_vr_01()
 			HORI_POLL_VR1, 0, 1, (unsigned char *)&vr, sizeof(vr), 200);
 
 	// Handle stall. (Do nothing, we're in a control xfer.)
-	if( LIBUSB_ERROR_PIPE == err ) {
-		//fprintf(stderr, "-EPIPE\n");
+	if( LIBUSB_ERROR_PIPE == err || LIBUSB_ERROR_TIMEOUT == err )
 		return 0;
-	}
 
 	if( 0 > err) {
-		fprintf(stderr, "hori_poll_vr_01: libusb_interrupt_transfer failed: %d: %s", err, libusb_strerror(err));
+		fprintf(stderr, "hori_poll_vr_01: libusb_control_transfer failed: %d: %s", err, libusb_strerror(err));
 		return -1;
 	}
 
