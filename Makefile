@@ -1,4 +1,7 @@
 all: hori
 
-hori: hori.o
-	$(CC) -o hori hori.c -lusb-1.0
+hori: hori.c
+	$(CC) -o hori hori.c -lusb-1.0 -Ofast
+
+clean:
+	rm hori

@@ -19,7 +19,6 @@
 
 #define HORI_POLL_VR0           0x00
 #define HORI_POLL_VR1           0x01
-#define HORI_POLL_VR2           0x02
 
 #define HORI_HAT_X      ABS_TILT_X // or ABS_RX
 #define HORI_HAT_Y      ABS_TILT_Y // or ABS_RY
@@ -36,7 +35,7 @@ struct hori_input_ir {
 
 	uint8_t	btn_a;
 	uint8_t	btn_b;
-} state_ir;
+};
 
 /* input: vendor request 0x00 */
 struct hori_input_vr_00 {
@@ -56,7 +55,7 @@ struct hori_input_vr_00 {
 	uint8_t launch : 1;           /* button lauch */
 	uint8_t trigger : 1;          /* trigger */
 	uint8_t reserved3 : 1;
-} state_vr00;
+};
 
 /* input: vendor request 0x01 */
 struct hori_input_vr_01 {
@@ -75,23 +74,28 @@ struct hori_input_vr_01 {
 	uint8_t dpad2_right : 1;      /* d-pad 2 right */
 	uint8_t dpad2_bottom : 1;     /* d-pad 2 bottom */
 	uint8_t dpad2_left : 1;       /* d-pad 2 left */
-} state_vr01;
+};
 
-int uinp_fd;
-struct uinput_user_dev uinp;
+struct hori_instance {
+	struct hori_input_ir	state_ir;
+	struct hori_input_vr_00	state_vr00;
+	struct hori_input_vr_01	state_vr01;
 
-libusb_device_handle *hori_usbdev;
+	int uinp_fd;
+	struct uinput_user_dev uinp;
 
-struct s_hori_usbinfo {
-	uint8_t	address;
-	uint8_t	type;
-	uint16_t	maxpacket;
-	uint8_t	interval;
-} hori_usbinfo;
+	struct libusb_device *usbdev;
+	struct libusb_device_handle *usbdev_handle;
 
-int hori_setup_uinput_abs(int code)
+	struct hori_instance *prev, *next;
+};
+
+struct hori_instance *hori_handles = NULL;
+
+int hori_uinput_setup_abs(struct hori_instance *inst, int code)
 {
 	struct uinput_abs_setup setup;
+	memset( &setup, 0, sizeof(setup) );
 	setup.code = code;
 	setup.absinfo.minimum = 0;
 	setup.absinfo.maximum = 255;
@@ -99,105 +103,105 @@ int hori_setup_uinput_abs(int code)
 	setup.absinfo.flat = 0;
 	setup.absinfo.resolution = 0;
 	setup.absinfo.value = 0;
-	ioctl(uinp_fd, UI_ABS_SETUP, &setup);
+	ioctl(inst->uinp_fd, UI_ABS_SETUP, &setup);
 }
 
-int hori_init_uinput()
+int hori_uinput_init(struct hori_instance *inst)
 {
 	int err;
-	uinp_fd = open("/dev/uinput", O_WRONLY | O_NONBLOCK);
-	if(uinp_fd < 0) {
-		fprintf(stderr, "hori_init_uinput: open(\"/dev/uinput\") failed: %s\n",
-				strerror(uinp_fd));
+	inst->uinp_fd = open("/dev/uinput", O_WRONLY | O_NONBLOCK);
+	if(inst->uinp_fd < 0) {
+		fprintf(stderr, "hori_uinput_init: open(\"/dev/uinput\") failed: %s\n",
+				strerror(inst->uinp_fd));
 		return -1;
 	}
 
-	err = ioctl(uinp_fd, UI_SET_EVBIT, EV_SYN);
+	err = ioctl(inst->uinp_fd, UI_SET_EVBIT, EV_SYN);
 	if(err < 0) {
-		fprintf(stderr, "hori_init_uinput: ioctl(%d, UI_SET_EVBIT, EV_SYN) failed: %s\n",
-				uinp_fd, strerror(err));
+		fprintf(stderr, "hori_uinput_init: ioctl(%d, UI_SET_EVBIT, EV_SYN) failed: %s\n",
+				inst->uinp_fd, strerror(err));
 		return -1;
 	}
 
-	err = ioctl(uinp_fd, UI_SET_EVBIT, EV_KEY);
+	err = ioctl(inst->uinp_fd, UI_SET_EVBIT, EV_KEY);
 	if(err < 0) {
-		fprintf(stderr, "hori_init_uinput: ioctl(%d, UI_SET_EVBIT, EV_KEY) failed: %s\n",
-				uinp_fd, strerror(err));
+		fprintf(stderr, "hori_uinput_init: ioctl(%d, UI_SET_EVBIT, EV_KEY) failed: %s\n",
+				inst->uinp_fd, strerror(err));
 		return -1;
 	}
 
-	ioctl(uinp_fd, UI_SET_KEYBIT, BTN_TRIGGER_HAPPY1);
-	ioctl(uinp_fd, UI_SET_KEYBIT, BTN_TRIGGER_HAPPY2);
-	ioctl(uinp_fd, UI_SET_KEYBIT, BTN_TRIGGER_HAPPY3);
-	ioctl(uinp_fd, UI_SET_KEYBIT, BTN_TRIGGER_HAPPY4);
-	ioctl(uinp_fd, UI_SET_KEYBIT, BTN_TRIGGER_HAPPY5);
-	ioctl(uinp_fd, UI_SET_KEYBIT, BTN_TRIGGER_HAPPY6);
-	ioctl(uinp_fd, UI_SET_KEYBIT, BTN_TRIGGER_HAPPY7);
-	ioctl(uinp_fd, UI_SET_KEYBIT, BTN_TRIGGER_HAPPY8);
+	ioctl(inst->uinp_fd, UI_SET_KEYBIT, BTN_TRIGGER_HAPPY1);
+	ioctl(inst->uinp_fd, UI_SET_KEYBIT, BTN_TRIGGER_HAPPY2);
+	ioctl(inst->uinp_fd, UI_SET_KEYBIT, BTN_TRIGGER_HAPPY3);
+	ioctl(inst->uinp_fd, UI_SET_KEYBIT, BTN_TRIGGER_HAPPY4);
+	ioctl(inst->uinp_fd, UI_SET_KEYBIT, BTN_TRIGGER_HAPPY5);
+	ioctl(inst->uinp_fd, UI_SET_KEYBIT, BTN_TRIGGER_HAPPY6);
+	ioctl(inst->uinp_fd, UI_SET_KEYBIT, BTN_TRIGGER_HAPPY7);
+	ioctl(inst->uinp_fd, UI_SET_KEYBIT, BTN_TRIGGER_HAPPY8);
 
-	ioctl(uinp_fd, UI_SET_KEYBIT, BTN_TRIGGER);
-	ioctl(uinp_fd, UI_SET_KEYBIT, BTN_THUMB);
-	ioctl(uinp_fd, UI_SET_KEYBIT, BTN_THUMB2);
+	ioctl(inst->uinp_fd, UI_SET_KEYBIT, BTN_TRIGGER);
+	ioctl(inst->uinp_fd, UI_SET_KEYBIT, BTN_THUMB);
+	ioctl(inst->uinp_fd, UI_SET_KEYBIT, BTN_THUMB2);
 
-	ioctl(uinp_fd, UI_SET_KEYBIT, BTN_A);
-	ioctl(uinp_fd, UI_SET_KEYBIT, BTN_B);
-	ioctl(uinp_fd, UI_SET_KEYBIT, BTN_C);
-	ioctl(uinp_fd, UI_SET_KEYBIT, BTN_Y);
-	ioctl(uinp_fd, UI_SET_KEYBIT, BTN_X);
+	ioctl(inst->uinp_fd, UI_SET_KEYBIT, BTN_A);
+	ioctl(inst->uinp_fd, UI_SET_KEYBIT, BTN_B);
+	ioctl(inst->uinp_fd, UI_SET_KEYBIT, BTN_C);
+	ioctl(inst->uinp_fd, UI_SET_KEYBIT, BTN_Y);
+	ioctl(inst->uinp_fd, UI_SET_KEYBIT, BTN_X);
 
-	ioctl(uinp_fd, UI_SET_KEYBIT, BTN_Z);
-	ioctl(uinp_fd, UI_SET_KEYBIT, BTN_TL);
-	ioctl(uinp_fd, UI_SET_KEYBIT, BTN_TR);
-	ioctl(uinp_fd, UI_SET_KEYBIT, BTN_MODE);
+	ioctl(inst->uinp_fd, UI_SET_KEYBIT, BTN_Z);
+	ioctl(inst->uinp_fd, UI_SET_KEYBIT, BTN_TL);
+	ioctl(inst->uinp_fd, UI_SET_KEYBIT, BTN_TR);
+	ioctl(inst->uinp_fd, UI_SET_KEYBIT, BTN_MODE);
 
-	ioctl(uinp_fd, UI_SET_EVBIT, EV_ABS);
-	ioctl(uinp_fd, UI_SET_ABSBIT, ABS_X);
-	ioctl(uinp_fd, UI_SET_ABSBIT, ABS_Y);
-	ioctl(uinp_fd, UI_SET_ABSBIT, ABS_RUDDER);
-	ioctl(uinp_fd, UI_SET_ABSBIT, ABS_GAS);
-	ioctl(uinp_fd, UI_SET_ABSBIT, HORI_HAT_X);
-	ioctl(uinp_fd, UI_SET_ABSBIT, HORI_HAT_Y);
+	ioctl(inst->uinp_fd, UI_SET_EVBIT, EV_ABS);
+	ioctl(inst->uinp_fd, UI_SET_ABSBIT, ABS_X);
+	ioctl(inst->uinp_fd, UI_SET_ABSBIT, ABS_Y);
+	ioctl(inst->uinp_fd, UI_SET_ABSBIT, ABS_RUDDER);
+	ioctl(inst->uinp_fd, UI_SET_ABSBIT, ABS_GAS);
+	ioctl(inst->uinp_fd, UI_SET_ABSBIT, HORI_HAT_X);
+	ioctl(inst->uinp_fd, UI_SET_ABSBIT, HORI_HAT_Y);
 
-	memset(&uinp, 0, sizeof(uinp));
-	snprintf(uinp.name, UINPUT_MAX_NAME_SIZE, "Mitsubishi HORI/Namco Flightstick 2");
-	uinp.id.bustype = BUS_USB;
-	uinp.id.vendor = HORI_VENDOR_ID;
-	uinp.id.product = HORI_PRODUCT_ID;
-	uinp.id.version = 1;
+	memset(&inst->uinp, 0, sizeof(inst->uinp));
+	snprintf(inst->uinp.name, UINPUT_MAX_NAME_SIZE, "Mitsubishi HORI/Namco Flightstick 2");
+	inst->uinp.id.bustype = BUS_USB;
+	inst->uinp.id.vendor = HORI_VENDOR_ID;
+	inst->uinp.id.product = HORI_PRODUCT_ID;
+	inst->uinp.id.version = 1;
 
-	err = write(uinp_fd, &uinp, sizeof(uinp));
+	err = write(inst->uinp_fd, &inst->uinp, sizeof(inst->uinp));
 	if(err < 0) {
-		fprintf(stderr, "hori_init_uinput: write(%d, uinp) failed: %s\n",
-				uinp_fd, strerror(err));
+		fprintf(stderr, "hori_uinput_init: write(%d, uinp) failed: %s\n",
+				inst->uinp_fd, strerror(err));
 		return -1;
 	}
 
-	hori_setup_uinput_abs(ABS_X);
-	hori_setup_uinput_abs(ABS_Y);
-	hori_setup_uinput_abs(ABS_RUDDER);
-	hori_setup_uinput_abs(ABS_GAS);
-	hori_setup_uinput_abs(HORI_HAT_X);
-	hori_setup_uinput_abs(HORI_HAT_Y);
+	hori_uinput_setup_abs(inst, ABS_X);
+	hori_uinput_setup_abs(inst, ABS_Y);
+	hori_uinput_setup_abs(inst, ABS_RUDDER);
+	hori_uinput_setup_abs(inst, ABS_GAS);
+	hori_uinput_setup_abs(inst, HORI_HAT_X);
+	hori_uinput_setup_abs(inst, HORI_HAT_Y);
 
-	err = ioctl(uinp_fd, UI_DEV_CREATE);
+	err = ioctl(inst->uinp_fd, UI_DEV_CREATE);
 	if(err < 0) {
-		fprintf(stderr, "hori_init_uinput: ioctl(%d, UI_DEV_CREATE) failed: %s\n",
-				uinp_fd, strerror(err));
+		fprintf(stderr, "hori_uinput_init: ioctl(%d, UI_DEV_CREATE) failed: %s\n",
+				inst->uinp_fd, strerror(err));
 		return -1;
 	}
 
 	return 0;
 }
 
-void hori_shutdown_uinput()
+void hori_uinput_shutdown(struct hori_instance *inst)
 {
-	if(ioctl(uinp_fd, UI_DEV_DESTROY) < 0) {
-		fprintf(stderr, "hori_shutdown_uinput: ioctl(%d, UI_DEV_DESTROY) failed.\n", uinp_fd);
+	if(ioctl(inst->uinp_fd, UI_DEV_DESTROY) < 0) {
+		fprintf(stderr, "hori_uinput_shutdown: ioctl(%d, UI_DEV_DESTROY) failed.\n", inst->uinp_fd);
 	}
-	close(uinp_fd);
+	close(inst->uinp_fd);
 }
 
-int hori_emit_uinput(int type, int code, int val)
+static inline int hori_uinput_emit(struct hori_instance *inst, int type, int code, int val)
 {
 	struct input_event ie;
 
@@ -208,74 +212,136 @@ int hori_emit_uinput(int type, int code, int val)
 	ie.time.tv_sec = 0;
 	ie.time.tv_usec = 0;
 
-	int ret = write(uinp_fd, &ie, sizeof(ie));
+	int ret = write(inst->uinp_fd, &ie, sizeof(ie));
 	if( ret < 0 ) {
-		fprintf(stderr, "hori_emit_uinput: write(%d, data, %d) failed.\n",
-				uinp_fd, sizeof(ie));
+		fprintf(stderr, "hori_uinput_emit: write(%d, data, %d) failed.\n",
+				inst->uinp_fd, sizeof(ie));
 		return -1;
 	}
 	return 0;
 }
 
-int hori_init_usb()
+struct hori_instance *hori_instance_find(struct libusb_device *usbdev)
 {
-	libusb_init(NULL);
-	hori_usbdev = libusb_open_device_with_vid_pid(NULL, HORI_VENDOR_ID, HORI_PRODUCT_ID);
-	if(!hori_usbdev) {
-		fprintf(stderr, "hori_init_usb: Device could not be opened. Check that it is connected and that you have appropriate permissions.\n");
-		return -1;
+	struct hori_instance *i;
+	for( i=hori_handles; i; i = i->next )
+	{
+		if( i->usbdev == usbdev )
+			return i;
+	}
+
+	return NULL;
+}
+
+void hori_instance_insert(struct hori_instance *inst)
+{
+	if( hori_handles )
+		hori_handles->prev = inst;
+
+	inst->next = hori_handles;
+	hori_handles = inst;
+}
+
+void hori_instance_remove(struct hori_instance *inst)
+{
+	if( inst->prev )
+		inst->prev->next = inst->next;
+	else
+		hori_handles = inst->next;
+
+	if( inst->next )
+		inst->next->prev = inst->prev;
+
+	inst->prev = inst->next = NULL;
+}
+
+int hori_usb_init(struct hori_instance *inst)
+{
+	int err = libusb_open(inst->usbdev, &inst->usbdev_handle);
+	if(LIBUSB_SUCCESS != err) {
+		fprintf(stderr, "hori_usb_init: Device could not be opened. Check that it is connected and that you have appropriate permissions.\n");
+		return err;
 	}
 	
-	int err = libusb_claim_interface(hori_usbdev, 0);
-	if(err) {
-		fprintf(stderr, "hori_init_usb: Cannot claim interface: %s", libusb_strerror(err));
-		return -1;
+	err = libusb_claim_interface(inst->usbdev_handle, 0);
+	if(LIBUSB_SUCCESS != err) {
+		fprintf(stderr, "hori_usb_init: Cannot claim interface: %s", libusb_strerror(err));
+		return err;
 	}
 
-	err = libusb_set_interface_alt_setting(hori_usbdev, 0, 0);
-	if(err) {
-		fprintf(stderr, "hori_init_usb: Cannot set alternate setting: %s", libusb_strerror(err));
-		return -1;
+	err = libusb_set_interface_alt_setting(inst->usbdev_handle, 0, 0);
+	if(LIBUSB_SUCCESS != err) {
+		fprintf(stderr, "hori_usb_init: Cannot set alternate setting: %s", libusb_strerror(err));
+		return err;
 	}
 
-	/**
-	 * Walk the 1 interface's 1 altsetting's 1 endpoint to get the address.
-	 *
-	 * We "know" it's 0x81, but... enh, just in case somebody wants to:
-	 **/
+	return LIBUSB_SUCCESS;
+}
 
-	hori_usbinfo.address = 0x81;
-/*
-	libusb_device *device = libusb_get_device(hori_usbdev);
-	struct libusb_config_descriptor *hori_usbconfig;
-	err = libusb_get_active_config_descriptor(device, &hori_usbconfig);
-	if(err) {
-		fprintf(stderr, "hori_init_usb: Cannot get current config descriptor: %s", libusb_strerror(err));
-		return -1;
-	}
-	for( int a=0; a < hori_usbconfig->bNumInterfaces; a++ )
+struct hori_instance *hori_instance_alloc()
+{
+	struct hori_instance *inst = (struct hori_instance *)malloc(sizeof(struct hori_instance));
+
+	memset(inst, 0, sizeof(struct hori_instance));
+
+	hori_instance_insert(inst);
+
+	return inst;
+}
+
+void hori_instance_free(struct hori_instance *inst)
+{
+	hori_instance_remove(inst);
+	free(inst);
+}
+
+void hori_instance_close(struct hori_instance *inst)
+{
+	struct libusb_device_handle *dev_handle = inst->usbdev_handle;
+	hori_uinput_shutdown(inst);
+	hori_instance_free(inst);
+	printf("hori_usb_hotplug_callback: Device disconnected\n");
+	libusb_close(dev_handle);
+}
+
+int hori_usb_hotplug_callback(struct libusb_context *ctx, struct libusb_device *dev,
+                     libusb_hotplug_event event, void *user_data) {
+	struct libusb_device_handle *dev_handle = NULL;
+	int rc;
+ 
+	if(LIBUSB_HOTPLUG_EVENT_DEVICE_ARRIVED == event)
 	{
-		const struct libusb_interface *iface = &hori_usbconfig->interface[a];
-		for( int b=0; b < iface->num_altsetting; b++ )
+		struct hori_instance *inst = hori_instance_alloc();
+		inst->usbdev = dev;
+		rc = hori_uinput_init(inst);
+		if( 0 != rc)
 		{
-			const struct libusb_interface_descriptor *desc = &iface->altsetting[b];
-			for( int c=0; c < desc->bNumEndpoints; c++ )
-			{
-				const struct libusb_endpoint_descriptor *ep = &desc->endpoint[c];
-				hori_usbinfo.address = ep->bEndpointAddress;
-				hori_usbinfo.type = ep->bDescriptorType;
-				hori_usbinfo.maxpacket = ep->wMaxPacketSize;
-				hori_usbinfo.interval = ep->bInterval;
-			}
+			fprintf(stderr, "hori_usb_hotplug_callback: Could not create a uinput instance for this device.\n");
+			hori_instance_free(inst);
+			return 0;
 		}
-	}
-	libusb_free_config_descriptor( hori_usbconfig );
-*/
 
+		rc = hori_usb_init(inst);
+		if (LIBUSB_SUCCESS != rc) {
+			fprintf(stderr, "hori_usb_hotplug_callback: Could not open USB device\n");
+			hori_instance_free(inst);
+		}
+
+		printf("hori_usb_hotplug_callback: Device connected\n");
+	} else if (LIBUSB_HOTPLUG_EVENT_DEVICE_LEFT == event) {
+		// This will usually not happen, because normally we
+		// notice the device is DCed during polling.
+		struct hori_instance *inst = hori_instance_find(dev);
+		if( inst )
+			hori_instance_close(inst);
+	} else {
+		fprintf(stderr, "hori_usb_hotplug_callback: Unhandled event %d\n", event);
+	}
+ 
 	return 0;
 }
 
-int hori_relbtn_ir(int oldval, int newval, int btnid)
+static inline int hori_relbtn_ir(struct hori_instance *inst, int oldval, int newval, int btnid)
 {
 	if( oldval == newval )
 		return 0;
@@ -285,29 +351,29 @@ int hori_relbtn_ir(int oldval, int newval, int btnid)
 	if( oldstate == newstate )
 		return 0;
 
-	if( 0 > hori_emit_uinput(EV_KEY, btnid, !newstate) ) {
-		fprintf(stderr, "hori_relbtn_ir: hori_emit_uinput failed!\n");
+	if( 0 > hori_uinput_emit(inst, EV_KEY, btnid, !newstate) ) {
+		fprintf(stderr, "hori_relbtn_ir: hori_uinput_emit failed!\n");
 		return -1;
 	}
 
 	return 1;
 }
 
-#define ABS_IR(FIELD, KEY) if( state_ir.FIELD != ir.FIELD ) { doreport = 1; state_ir.FIELD = ir.FIELD; if( 0 > hori_emit_uinput(EV_ABS, KEY, ir.FIELD) ) { fprintf(stderr, "ABS_IR: hori_emit_uinput failed!\n"); return -1; } }
+#define ABS_IR(FIELD, KEY) if( inst->state_ir.FIELD != ir.FIELD ) { doreport = 1; inst->state_ir.FIELD = ir.FIELD; if( 0 > hori_uinput_emit(inst, EV_ABS, KEY, ir.FIELD) ) { fprintf(stderr, "ABS_IR: hori_uinput_emit failed!\n"); return -1; } }
 
-int hori_poll_ir()
+int hori_poll_ir(struct hori_instance *inst)
 {
 	int transferred;
 	struct hori_input_ir ir;
 
-	int err = libusb_interrupt_transfer(hori_usbdev, hori_usbinfo.address, (unsigned char *)&ir, sizeof(ir), &transferred, 200);
+	int err = libusb_interrupt_transfer(inst->usbdev_handle, 0x81, (unsigned char *)&ir, sizeof(ir), &transferred, 1000);
 
 	// enh.
 	if( LIBUSB_ERROR_TIMEOUT == err )
 		return 0;
 
 	if( 0 != err) {
-		fprintf(stderr, "hori_poll_ir: libusb_interrupt_transfer failed: %d: %s", err, libusb_strerror(err));
+		fprintf(stderr, "hori_poll_ir: libusb_interrupt_transfer failed: %d: %s\n", err, libusb_strerror(err));
 		return -1;
 	}
 
@@ -317,6 +383,11 @@ int hori_poll_ir()
 		return 0;
 	}
 
+	int64_t *a = (int64_t *)&inst->state_ir;
+	int64_t *b = (int64_t *)&ir;
+	if( a[0] == b[0] )
+		return 0;
+
 	int doreport = 0;
 	ABS_IR(pos_x, ABS_X);
 	ABS_IR(pos_y, ABS_Y);
@@ -325,28 +396,28 @@ int hori_poll_ir()
 	ABS_IR(hat_x, HORI_HAT_X);
 	ABS_IR(hat_y, HORI_HAT_Y);
 
-	int btn_a_ret = hori_relbtn_ir(state_ir.btn_a, ir.btn_a, BTN_A);
-	state_ir.btn_a = ir.btn_a;
+	int btn_a_ret = hori_relbtn_ir(inst, inst->state_ir.btn_a, ir.btn_a, BTN_A);
+	inst->state_ir.btn_a = ir.btn_a;
 	if( btn_a_ret == 1 ) doreport = 1;
 	if( btn_a_ret < 0 ) return btn_a_ret;
 
-	int btn_b_ret = hori_relbtn_ir(state_ir.btn_b, ir.btn_b, BTN_B);
-	state_ir.btn_b = ir.btn_b;
+	int btn_b_ret = hori_relbtn_ir(inst, inst->state_ir.btn_b, ir.btn_b, BTN_B);
+	inst->state_ir.btn_b = ir.btn_b;
 	if( btn_b_ret == 1 ) doreport = 1;
 	if( btn_b_ret < 0 ) return btn_b_ret;
 
 	if( 1 == doreport )
-		return hori_emit_uinput(EV_SYN, SYN_REPORT, 0);
+		return hori_uinput_emit(inst, EV_SYN, SYN_REPORT, 0);
 
 	return err;
 }
 
-#define KEY_VR00(FIELD, KEY) if( state_vr00.FIELD != vr.FIELD ) { doreport = 1; state_vr00.FIELD = vr.FIELD; if( 0 > hori_emit_uinput(EV_KEY, KEY, !vr.FIELD) ) { fprintf(stderr, "KEY_VR_00: hori_emit_uinput failed!\n"); return -1; } }
-int hori_poll_vr_00()
+#define KEY_VR00(FIELD, KEY) if( inst->state_vr00.FIELD != vr.FIELD ) { doreport = 1; inst->state_vr00.FIELD = vr.FIELD; if( 0 > hori_uinput_emit(inst, EV_KEY, KEY, !vr.FIELD) ) { fprintf(stderr, "KEY_VR_00: hori_uinput_emit failed!\n"); return -1; } }
+int hori_poll_vr_00(struct hori_instance *inst)
 {
 	struct hori_input_vr_00 vr;
 
-	int err = libusb_control_transfer(hori_usbdev,
+	int err = libusb_control_transfer(inst->usbdev_handle,
 			LIBUSB_ENDPOINT_IN | LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_ENDPOINT,
 			HORI_POLL_VR0, 0, 1, (unsigned char *)&vr, sizeof(vr), 200);
 
@@ -355,7 +426,7 @@ int hori_poll_vr_00()
 		return 0;
 
 	if( 0 > err) {
-		fprintf(stderr, "hori_poll_vr_00: libusb_control_transfer failed: %d: %s", err, libusb_strerror(err));
+		fprintf(stderr, "hori_poll_vr_00: libusb_control_transfer failed: %d: %s\n", err, libusb_strerror(err));
 		return -1;
 	}
 
@@ -364,6 +435,11 @@ int hori_poll_vr_00()
 				sizeof(vr), err);
 		return 0;
 	}
+
+	int16_t *a = (int16_t *)&inst->state_vr00;
+	int16_t *b = (int16_t *)&vr;
+	if( a[0] == b[0] )
+		return 0;
 
 	int doreport = 0;
 
@@ -381,17 +457,17 @@ int hori_poll_vr_00()
 	KEY_VR00(trigger,	BTN_TRIGGER);
 
 	if( 1 == doreport )
-		return hori_emit_uinput(EV_SYN, SYN_REPORT, 0);
+		return hori_uinput_emit(inst, EV_SYN, SYN_REPORT, 0);
 
 	return 0;
 }
 
-#define KEY_VR01(FIELD, KEY) if( state_vr01.FIELD != vr.FIELD ) { doreport = 1; state_vr01.FIELD = vr.FIELD; if( 0 > hori_emit_uinput(EV_KEY, KEY, !vr.FIELD) ) { fprintf(stderr, "KEY_VR_01: hori_emit_uinput failed!\n"); return -1; } }
-int hori_poll_vr_01()
+#define KEY_VR01(FIELD, KEY) if( inst->state_vr01.FIELD != vr.FIELD ) { doreport = 1; inst->state_vr01.FIELD = vr.FIELD; if( 0 > hori_uinput_emit(inst, EV_KEY, KEY, !vr.FIELD) ) { fprintf(stderr, "KEY_VR_01: hori_uinput_emit failed!\n"); return -1; } }
+int hori_poll_vr_01(struct hori_instance *inst)
 {
 	struct hori_input_vr_01 vr;
 
-	int err = libusb_control_transfer(hori_usbdev,
+	int err = libusb_control_transfer(inst->usbdev_handle,
 			LIBUSB_ENDPOINT_IN | LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_ENDPOINT,
 			HORI_POLL_VR1, 0, 1, (unsigned char *)&vr, sizeof(vr), 200);
 
@@ -400,7 +476,7 @@ int hori_poll_vr_01()
 		return 0;
 
 	if( 0 > err) {
-		fprintf(stderr, "hori_poll_vr_01: libusb_control_transfer failed: %d: %s", err, libusb_strerror(err));
+		fprintf(stderr, "hori_poll_vr_01: libusb_control_transfer failed: %d: %s\n", err, libusb_strerror(err));
 		return -1;
 	}
 
@@ -409,6 +485,11 @@ int hori_poll_vr_01()
 				sizeof(vr), err);
 		return 0;
 	}
+
+	int16_t *a = (int16_t *)&inst->state_vr01;
+	int16_t *b = (int16_t *)&vr;
+	if( a[0] == b[0] )
+		return 0;
 
 	int doreport = 0;
 
@@ -424,43 +505,128 @@ int hori_poll_vr_01()
 	KEY_VR01(dpad2_left,	BTN_MODE);
 
 	if( 1 == doreport )
-		return hori_emit_uinput(EV_SYN, SYN_REPORT, 0);
+		return hori_uinput_emit(inst, EV_SYN, SYN_REPORT, 0);
 
 	return 0;
 }
 
+int hori_poll()
+{
+	int err = 0;
+	struct hori_instance *i, *n;
+	for( i=hori_handles; i; i=n)
+	{
+		n = i->next;
+		err = hori_poll_ir(i);
+	
+		if( 0 == err )
+			err = hori_poll_vr_00(i);
+	
+		if( 0 == err )
+			err = hori_poll_vr_01(i);
+
+		if( 0 != err )
+			hori_instance_close(i);
+	}
+
+	return err;
+}
+
+int hori_init_existing()
+{
+	libusb_device **devlist = NULL;
+	ssize_t count = libusb_get_device_list(NULL, &devlist);
+	for(ssize_t i = 0; i < count; i++)
+	{
+		struct libusb_device_descriptor desc;
+		libusb_device *device = devlist[i];
+
+		int ret = libusb_get_device_descriptor(device, &desc);
+		if( LIBUSB_SUCCESS != ret )
+			continue;
+
+		if( HORI_VENDOR_ID != desc.idVendor )
+			continue;
+
+		if( HORI_PRODUCT_ID != desc.idProduct )
+			continue;
+
+		struct hori_instance *inst = hori_instance_alloc();
+		inst->usbdev = device;
+		ret = hori_uinput_init(inst);
+		if( 0 != ret)
+		{
+			fprintf(stderr, "hori_init_existing: Could not create a uinput instance for this device.\n");
+			hori_instance_free(inst);
+			continue;
+		}
+
+		ret = hori_usb_init(inst);
+		if (LIBUSB_SUCCESS != ret) {
+			fprintf(stderr, "hori_init_existing: Could not open USB device\n");
+			hori_instance_free(inst);
+		}
+		fprintf(stderr, "hori_init_existing: Device registered.\n");
+	}
+	libusb_free_device_list(devlist, 1);
+}
 
 int main(int argc, char **argv)
 {
 	int ret;
+	libusb_hotplug_callback_handle callback_handle;
 
-	memset(&state_ir, 0, sizeof(state_ir));
-	memset(&state_vr00, 0, sizeof(state_vr00));
-	memset(&state_vr01, 0, sizeof(state_vr01));
+	libusb_init(NULL);
 
-	ret = hori_init_uinput();
-	if( 0 != ret)
-		return ret;
+	//libusb_init_context(NULL, NULL, 0);
 
-	ret = hori_init_usb();
-	if( 0 != ret ) {
-		hori_shutdown_uinput();
-		return ret;
+	ret = libusb_hotplug_register_callback(NULL,
+			LIBUSB_HOTPLUG_EVENT_DEVICE_ARRIVED | LIBUSB_HOTPLUG_EVENT_DEVICE_LEFT,
+			0,
+			HORI_VENDOR_ID,
+			HORI_PRODUCT_ID,
+			LIBUSB_HOTPLUG_MATCH_ANY,
+			hori_usb_hotplug_callback,
+			NULL,
+			&callback_handle);
+
+	if (LIBUSB_SUCCESS != ret) {
+		printf("Error creating a hotplug callback\n");
+		libusb_exit(NULL);
+		return EXIT_FAILURE;
 	}
 
-	int err = 0;
-	while(0 == err)
-	{
-		err = hori_poll_ir();
+	// Try to pick up any devices currently connected.
+	hori_init_existing();
 
-		if( 0 == err )
-			err = hori_poll_vr_00();
+	printf("Mitsubishi HORI/Namco Flightstick 2 driver loaded.\n");
 
-		if( 0 == err )
-			err = hori_poll_vr_01();
+	struct timespec ts;
+	struct timeval tv;
+	uint32_t chillout = 0;
+	while (1) {
+		hori_poll();
+
+		// effectively limit polling to 5ms intervals
+		// to reduce cpu usage:
+		tv.tv_sec = 0;
+		tv.tv_usec = 5000;
+
+		// only check hotplug events every 5 seconds
+		// to reduce cpu usage:
+		if( chillout++ % 1000 == 0 ) {
+			// if no devices, block for a full minute"
+			if( NULL == hori_handles )
+				tv.tv_sec = 60;
+
+			libusb_handle_events_timeout_completed(NULL, &tv, NULL);
+		} else
+			select(0, NULL, NULL, NULL, &tv);
 	}
 
-	hori_shutdown_uinput();
+	libusb_hotplug_deregister_callback(NULL, callback_handle);
+	libusb_exit(NULL);
+
 	return 0;
 }
 
